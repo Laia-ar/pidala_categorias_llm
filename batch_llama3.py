@@ -1,12 +1,16 @@
 import pandas as pd
 import requests
 import time
+import sys
 from datetime import datetime
+
+if (len(sys.argv[1]) < 1 or len(sys.argv[2]) < 1 ):
+    exit("Missing command line parameters URL and API_KEY")
 
 # Connection info
 # TODO put into a file and .gitignore it
-URL = 'url del endpoint openAI compatible (normalmente .../v1/chat/completions)'
-API_KEY = 'api key'
+URL = sys.argv[1];
+API_KEY = sys.argv[2];
 
 headers = {
     'Content-Type': 'application/json',
