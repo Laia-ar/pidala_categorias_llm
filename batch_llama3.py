@@ -21,9 +21,9 @@ headers = {
 example_task_prompt = {}
 example_assistant_reply = {}
 
-system_prompt_task = """Tu trabajo es responder con el nombre de una categoría a preguntas de ciudadanos. 
+system_prompt_task = """Tu trabajo es responder con el nombre de la categoría más apropiada para el texto de una solicitud de acceso a la información pública. 
 
-Las categorías son:  
+Las categorías posibles son:  
 
 Presupuesto y gastos
 Elecciones / Campañas electorales
@@ -50,37 +50,46 @@ Responde "Falta Información" en el caso de que la pregunta no se entienda o hag
 No uses comillas en la respuesta.
 
 """  
-example_task_prompt[0] = """Pedido a categorizar: SOLICITO EL NOMBRE DE LOS GRUPOS MUSICALES Y MONTO PAGADO, CONTRATADOS PARA EL EVENTO DE LA COMIDA NAVIDEÑA A LOS TRABAJADORES DEL AYUNTAMIENTO DE PUEBLA EL PASADO 14 DE DICIEMBRE DE 2018 EN EL CENTRO EXPOSITOR, EN EL CASO DE LA SONORA DINAMITA CUANTO COBRO Y COPIA SIMPLE DEL CONTRATO. 
+example_task_prompt[0] = """Solicitud a categorizar: SOLICITO EL NOMBRE DE LOS GRUPOS MUSICALES Y MONTO PAGADO, CONTRATADOS PARA EL EVENTO DE LA COMIDA NAVIDEÑA A LOS TRABAJADORES DEL AYUNTAMIENTO DE PUEBLA EL PASADO 14 DE DICIEMBRE DE 2018 EN EL CENTRO EXPOSITOR, EN EL CASO DE LA SONORA DINAMITA CUANTO COBRO Y COPIA SIMPLE DEL CONTRATO. 
 Categoria: """
 example_assistant_reply[0] = "Compras públicas y contratos"
 
-example_task_prompt[1] = """Pedido a categorizar: deseo saber las acciones y resultados de el tema de prevención o atención a personas con cáncer así como los presupuestos para estos temas así como los apoyos a organizaciones de la sociedad civil encargadas de estos temas en el estado de puebla así como los datos de contacto de los responsables de este tema asi como los presupuestos si es posible coen comprobatoria y resumen del 2017 y plan de trabajo del 2018
+example_task_prompt[1] = """Solicitud a categorizar: deseo saber las acciones y resultados de el tema de prevención o atención a personas con cáncer así como los presupuestos para estos temas así como los apoyos a organizaciones de la sociedad civil encargadas de estos temas en el estado de puebla así como los datos de contacto de los responsables de este tema asi como los presupuestos si es posible coen comprobatoria y resumen del 2017 y plan de trabajo del 2018
 Categoria: """
 example_assistant_reply[1] = "Salud"
 
 # "Others" example
 # Egar: Ajustar, intuyo que puede generar bias (solo considerar cosas ridiculas podria ser consecuencia de este, quizás?)  
-example_task_prompt[2] = """Pedido a categorizar: Solicito una buena receta de mole poblano.
+example_task_prompt[2] = """Solicitud a categorizar: Solicito una buena receta de mole poblano.
 Categoria: """
 example_assistant_reply[2] = "Otros"
 
 # User Prompt appends
-follow_up_instruction = "Pedido a categorizar: "
+follow_up_instruction = "Solicitud a categorizar: "
 after_prompt = "Categoria: "
 
 # Function to send text via POST request
-def send_texts_in_batches(texts, folios, batch_size=5, iteration_delay=0.1, batch_delay=.5, retry_limit=1):
+def send_texts_in_batches(texts, adjuntos, folios, batch_size=5, iteration_delay=0.1, batch_delay=.5, retry_limit=1):
     responses = []
 
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i + batch_size]
+        batch_adjuntos = adjuntos[i:i + batch_size]
         batch_folios = folios[i:i + batch_size]
+        # print("batch",i,batch_adjuntos)
 
-        for data_instruction, folio in zip(batch_texts, batch_folios):
+        for data_instruction, adjunto, folio in zip(batch_texts, batch_adjuntos, batch_folios):
+            # print(folio)
             retry_count = 0
             while retry_count < retry_limit:
                 # Format prompt
-                prompt = follow_up_instruction + data_instruction + "\n" + after_prompt
+                prompt = follow_up_instruction + data_instruction
+                if (len(adjunto) > 1):
+                    prompt+= " Adjunto: "+adjunto;
+                prompt+= "\n" + after_prompt
+
+                # if (len(adjuntos) > 1):
+                #     print(prompt);
 
                 data = {
                     "model": "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -95,19 +104,21 @@ def send_texts_in_batches(texts, folios, batch_size=5, iteration_delay=0.1, batc
                     {"role": "user", "content": prompt},
                     ]
                 }
-
+                # print(prompt[:100])
                 response = requests.post(URL, json=data, headers=headers)  # Include headers
                 if response.status_code == 200:
                     response_text = response.json()['choices'][0]['message']['content'].strip()
-                    print(response.json())
+                    json = response.json()
+                    json["prompt"] = prompt[:300]
+                    print(json)
                 else:
                     response_text = "Error"
 
                 # Check if response is in categorias.csv
                 if check_response(response_text):
-                    print("Ok: " + response_text)
+                    print("Folio: "+ folio+" Categoría: " + response_text)
                     responses.append({'folio_unico': folio, 'categoria_probable': response_text, 'reintentos': retry_count})
-                    print("Text sent successfully for folio:", folio)
+                    # print("Text sent successfully for folio:", folio)
                     time.sleep(iteration_delay)
                     break
                 else:
@@ -147,9 +158,11 @@ def check_response(response_text):
     return len(response_text) <= 40  # Compare the length of the response against the maximum length of the categories
 
 # Get info from CSV
-df = pd.read_csv('preguntas_pnt_puebla.csv')
+df = pd.read_csv('preguntas_pnt_puebla_adjuntos.csv')
 descriptions = df['descripcion'].tolist()
+adjuntos = df['adjuntos_solicitud.contenido'].tolist()
+
 folios = df['folio_unico'].tolist()
 
 # Send texts in batches and get responses
-responses = send_texts_in_batches(descriptions, folios)
+responses = send_texts_in_batches(descriptions, adjuntos, folios)
